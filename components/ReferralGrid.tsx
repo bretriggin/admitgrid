@@ -6,9 +6,15 @@ import StatusBadge from "./StatusBadge";
 export function ReferralGrid({
   referrals,
   onRowClick,
+  onMdsReview,
+  onCaseManagerReview,
+  onBomReview,
 }: {
   referrals: Referral[];
   onRowClick?: (referral: Referral) => void;
+  onMdsReview?: (referral: Referral) => void;
+  onCaseManagerReview?: (referral: Referral) => void;
+  onBomReview?: (referral: Referral) => void;
 }) {
   const columns = [
     "Patient",
@@ -43,7 +49,7 @@ export function ReferralGrid({
         <tbody>
           {referrals.map((referral) => (
             <tr
-              key={referral.id}
+              key={referral.id ?? referral.patient}
               className="cursor-pointer border-t hover:bg-slate-50"
               onClick={() => onRowClick?.(referral)}
             >
@@ -57,18 +63,76 @@ export function ReferralGrid({
               </td>
               <td className="p-4">{referral.highCostMeds}</td>
               <td className="p-4">{referral.equipment}</td>
-              <td className="p-4">{referral.mds}</td>
-              <td className="p-4">
+              <td
+                className="p-4"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onMdsReview?.(referral);
+                }}
+              >
+                {referral.mds}
+              </td>
+              <td
+                className="p-4"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onMdsReview?.(referral);
+                }}
+              >
                 <StatusBadge value={referral.medicalNecessity} />
               </td>
-              <td className="p-4">{referral.payer}</td>
-              <td className="p-4">{referral.benefits}</td>
-              <td className="p-4">{referral.authNumber}</td>
-              <td className="p-4">{referral.authDates}</td>
-              <td className="p-4">
+              <td
+                className="p-4"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onCaseManagerReview?.(referral);
+                }}
+              >
+                {referral.payer}
+              </td>
+              <td
+                className="p-4"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onCaseManagerReview?.(referral);
+                }}
+              >
+                {referral.benefits}
+              </td>
+              <td
+                className="p-4"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onCaseManagerReview?.(referral);
+                }}
+              >
+                {referral.authNumber}
+              </td>
+              <td
+                className="p-4"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onCaseManagerReview?.(referral);
+                }}
+              >
+                {referral.authDates}
+              </td>
+              <td
+                className="p-4"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onBomReview?.(referral);
+                }}
+              >
                 <StatusBadge value={referral.cwf} />
               </td>
-              <td className="p-4">
+              <td
+                className="p-4"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onBomReview?.(referral);
+                }}
+              >
                 <StatusBadge value={referral.financialApproval} />
               </td>
               <td className="p-4">

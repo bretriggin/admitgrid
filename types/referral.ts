@@ -11,7 +11,7 @@ export type ReviewStatus =
   | "N/A";
 
 export type Referral = {
-  id: string;
+  id?: string;
   patient: string;
   type: ReferralType;
   source: string;
