@@ -1,65 +1,101 @@
-import Image from "next/image";
+import DashboardCard from "@/components/DashboardCard";
+import { ReferralGrid } from "@/components/ReferralGrid";
+import type { Referral } from "@/types/referral";
+
+const referrals: Referral[] = [
+  {
+    id: "glen-wilson",
+    patient: "Glen Wilson",
+    type: "SNF",
+    source: "HCA North Cypress",
+    clinical: "Approved",
+    highCostMeds: "None",
+    equipment: "Walker",
+    mds: "CVA / I69.354",
+    medicalNecessity: "Yes",
+    payer: "UHC WellMed",
+    benefits: "$0 copay / OOP pending",
+    authNumber: "Pending",
+    authDates: "Pending",
+    cwf: "Uploaded",
+    financialApproval: "Pending",
+    status: "Waiting on Auth",
+  },
+  {
+    id: "mary-johnson",
+    patient: "Mary Johnson",
+    type: "LTC",
+    source: "Medical City",
+    clinical: "Pending",
+    highCostMeds: "Review",
+    equipment: "Hospital bed",
+    mds: "Pending",
+    medicalNecessity: "Review",
+    payer: "Medicaid Pending",
+    benefits: "Pending",
+    authNumber: "N/A",
+    authDates: "N/A",
+    cwf: "N/A",
+    financialApproval: "Pending",
+    status: "Waiting on DON",
+  },
+  {
+    id: "robert-smith",
+    patient: "Robert Smith",
+    type: "SNF",
+    source: "Baylor Scott & White",
+    clinical: "Denied",
+    highCostMeds: "IV Dapto",
+    equipment: "Wound vac",
+    mds: "Infection / Pending ICD",
+    medicalNecessity: "Yes",
+    payer: "Humana MA",
+    benefits: "$295/day copay",
+    authNumber: "Not Started",
+    authDates: "N/A",
+    cwf: "Needed",
+    financialApproval: "Hold",
+    status: "Clinical Denial",
+  },
+];
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <main className="min-h-screen bg-slate-100 p-6 text-slate-900">
+      <div className="mx-auto max-w-[1600px] space-y-6">
+        <header>
+          <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">
+            SNF Admissions Command Center
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+          <h1 className="text-4xl font-bold">AdmitGrid</h1>
+          <p className="mt-2 text-slate-600">
+            Intake, clinical approval, MDS, benefits, authorization, CWF, and financial clearance in one grid.
+          </p>
+        </header>
+
+        <section className="grid gap-4 md:grid-cols-4">
+          <DashboardCard label="Today's Referrals" value="18" />
+          <DashboardCard label="Ready to Admit" value="6" tone="green" />
+          <DashboardCard label="Waiting on DON" value="2" tone="yellow" />
+          <DashboardCard label="Waiting on Auth" value="3" tone="yellow" />
+        </section>
+
+        <section className="rounded-2xl bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b p-5">
+            <div>
+              <h2 className="text-xl font-bold">Admissions Decision Grid</h2>
+              <p className="text-sm text-slate-500">
+                Built around the actual SNF admission decision workflow.
+              </p>
+            </div>
+            <button className="rounded-xl bg-blue-700 px-4 py-2 text-sm font-semibold text-white">
+              + New Referral
+            </button>
+          </div>
+
+          <ReferralGrid referrals={referrals} />
+        </section>
+      </div>
+    </main>
   );
 }
