@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAuthenticatedUserProfileAnyStatus } from "@/lib/auth/profile";
-import { getAuthErrorMessage, logServerAuthException } from "@/lib/auth/errors";
+import { exposeAuthErrorForUi } from "@/lib/auth/errors";
 import { getLoginBlockMessage, hasPendingAccessRequestForEmail } from "@/lib/auth/userManagement";
 import {
   getAdminSupabaseClientIfAvailable,
@@ -524,12 +524,10 @@ export async function checkLoginAllowed(): Promise<{
       message,
     };
   } catch (error) {
-    logServerAuthException("checkLoginAllowed", error);
-
     return {
       allowed: false,
       message: null,
-      checkError: getAuthErrorMessage(error, "Login access check failed."),
+      checkError: exposeAuthErrorForUi(error, "checkLoginAllowed"),
     };
   }
 }

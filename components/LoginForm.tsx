@@ -4,11 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { checkLoginAllowed } from "@/lib/auth/accessActions";
-import {
-  getAuthErrorMessage,
-  logServerAuthException,
-  logSupabaseAuthError,
-} from "@/lib/auth/errors";
+import { exposeAuthErrorForUi } from "@/lib/auth/errors";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 
 const inputClassName =
@@ -37,8 +33,7 @@ export function LoginForm() {
       });
 
       if (signInError) {
-        logSupabaseAuthError("LoginForm.signInWithPassword", signInError);
-        setError(getAuthErrorMessage(signInError, "Unable to sign in. Check your email and password."));
+        setError(exposeAuthErrorForUi(signInError, "LoginForm.signInWithPassword"));
         return;
       }
 
@@ -48,7 +43,14 @@ export function LoginForm() {
         sessionPresent: Boolean(signInData.session),
       });
 
-      const accessCheck = await checkLoginAllowed();
+      let accessCheck;
+
+      try {
+        accessCheck = await checkLoginAllowed();
+      } catch (actionError) {
+        setError(exposeAuthErrorForUi(actionError, "LoginForm.checkLoginAllowed.invoke"));
+        return;
+      }
 
       if (accessCheck.checkError) {
         setError(accessCheck.checkError);
@@ -64,11 +66,7 @@ export function LoginForm() {
       router.push("/");
       router.refresh();
     } catch (submitError) {
-      logServerAuthException("LoginForm.handleSubmit", submitError);
-      logSupabaseAuthError("LoginForm.handleSubmit", submitError);
-      setError(
-        getAuthErrorMessage(submitError, "Unable to sign in. Check your email and password."),
-      );
+      setError(exposeAuthErrorForUi(submitError, "LoginForm.handleSubmit"));
     } finally {
       setIsSubmitting(false);
     }
@@ -108,7 +106,7 @@ export function LoginForm() {
           />
         </div>
 
-        {error ? <p className="text-sm text-red-700">{error}</p> : null}
+        {error ? <p className="whitespace-pre-wrap text-sm text-red-700">{error}</p> : null}
 
         <button type="submit" disabled={isSubmitting} className={primaryButtonClassName}>
           {isSubmitting ? "Signing in..." : "Sign in"}
