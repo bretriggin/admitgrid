@@ -14,6 +14,9 @@ export default function LoginPage() {
           Only approved users can sign in. On a new system, the first authenticated user becomes the
           initial executive. Everyone else must submit an access request first.
         </p>
+        <p className="mt-2 text-xs font-mono text-slate-400">
+          Login build version: server-action-login-v2
+        </p>
 
         <div className="mt-6">
           <LoginForm />
