@@ -1,11 +1,11 @@
+export const dynamic = "force-dynamic";
+
 import { AppHeader } from "@/components/AppHeader";
 import { AdministrationPanel } from "@/components/AdministrationPanel";
 import { FacilitiesSection } from "@/components/admin/FacilitiesSection";
 import { TeamsSection } from "@/components/admin/TeamsSection";
 import { fetchAdministrationData } from "@/lib/auth/userManagement";
 import { requireSystemOwnerUserProfile } from "@/lib/auth/session";
-
-export const dynamic = "force-dynamic";
 
 export default async function AdministrationPage() {
   await requireSystemOwnerUserProfile();

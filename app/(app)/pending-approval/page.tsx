@@ -1,11 +1,11 @@
+export const dynamic = "force-dynamic";
+
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SignOutButton } from "@/components/SignOutButton";
 import { getAuthenticatedUserProfileAnyStatus } from "@/lib/auth/profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { isApprovedActiveProfile } from "@/types/userProfile";
-
-export const dynamic = "force-dynamic";
 
 function getStatusMessage(
   approvalStatus: string,

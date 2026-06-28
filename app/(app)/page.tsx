@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import DashboardCard from "@/components/DashboardCard";
 import { AdmissionsBoard } from "@/components/AdmissionsBoard";
 import { AppHeader } from "@/components/AppHeader";
@@ -14,8 +16,6 @@ import {
 } from "@/lib/referralSorting";
 import type { Referral } from "@/types/referral";
 import type { ReferralDocument } from "@/types/referralDocument";
-
-export const dynamic = "force-dynamic";
 
 function attachDocuments(
   referrals: Referral[],

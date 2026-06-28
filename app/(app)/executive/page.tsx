@@ -1,11 +1,11 @@
+export const dynamic = "force-dynamic";
+
 import { AppHeader } from "@/components/AppHeader";
 import { ExecutiveDashboard } from "@/components/ExecutiveDashboard";
 import { requireExecutiveUserProfile } from "@/lib/auth/session";
 import { computeExecutiveDashboardMetrics } from "@/lib/executiveDashboardMetrics";
 import { fetchAllReferralActivityLogs } from "@/lib/referralActivityLogServer";
 import { getAllReferrals } from "@/lib/referralsServer";
-
-export const dynamic = "force-dynamic";
 
 export default async function ExecutivePage() {
   await requireExecutiveUserProfile();
