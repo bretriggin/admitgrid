@@ -1,11 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { checkLoginAllowed } from "@/lib/auth/accessActions";
-import { exposeAuthErrorForUi } from "@/lib/auth/errors";
-import { createBrowserSupabaseClient } from "@/lib/supabase/client";
+import { signInWithCredentials } from "@/lib/auth/accessActions";
+import { exposeAuthErrorForUi, isNextRedirectError } from "@/lib/auth/errors";
 
 const inputClassName =
   "w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-700";
@@ -14,7 +12,6 @@ const primaryButtonClassName =
   "w-full rounded-xl bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60";
 
 export function LoginForm() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -26,46 +23,13 @@ export function LoginForm() {
     setError(null);
 
     try {
-      const supabase = createBrowserSupabaseClient();
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (signInError) {
-        setError(exposeAuthErrorForUi(signInError, "LoginForm.signInWithPassword"));
-        return;
-      }
-
-      console.info("[LoginForm] signInWithPassword succeeded:", {
-        userId: signInData.user?.id,
-        email: signInData.user?.email,
-        sessionPresent: Boolean(signInData.session),
-      });
-
-      let accessCheck;
-
-      try {
-        accessCheck = await checkLoginAllowed();
-      } catch (actionError) {
-        setError(exposeAuthErrorForUi(actionError, "LoginForm.checkLoginAllowed.invoke"));
-        return;
-      }
-
-      if (accessCheck.checkError) {
-        setError(accessCheck.checkError);
-        return;
-      }
-
-      if (!accessCheck.allowed) {
-        await supabase.auth.signOut();
-        setError(accessCheck.message ?? "Your account is not approved for AdmitGrid access.");
-        return;
-      }
-
-      router.push("/");
-      router.refresh();
+      const result = await signInWithCredentials(email, password);
+      setError(result.error);
     } catch (submitError) {
+      if (isNextRedirectError(submitError)) {
+        throw submitError;
+      }
+
       setError(exposeAuthErrorForUi(submitError, "LoginForm.handleSubmit"));
     } finally {
       setIsSubmitting(false);
@@ -106,7 +70,11 @@ export function LoginForm() {
           />
         </div>
 
-        {error ? <p className="whitespace-pre-wrap text-sm text-red-700">{error}</p> : null}
+        {error ? (
+          <p role="alert" aria-live="polite" className="whitespace-pre-wrap text-sm font-medium text-red-700">
+            {error}
+          </p>
+        ) : null}
 
         <button type="submit" disabled={isSubmitting} className={primaryButtonClassName}>
           {isSubmitting ? "Signing in..." : "Sign in"}

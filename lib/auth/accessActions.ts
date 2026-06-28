@@ -1,9 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getAuthenticatedUserProfileAnyStatus } from "@/lib/auth/profile";
-import { exposeAuthErrorForUi } from "@/lib/auth/errors";
+import { resolveUserProfileForAuthUser } from "@/lib/auth/bootstrap";
+import { exposeAuthErrorForUi, isNextRedirectError } from "@/lib/auth/errors";
 import { getLoginBlockMessage, hasPendingAccessRequestForEmail } from "@/lib/auth/userManagement";
 import {
   getAdminSupabaseClientIfAvailable,
@@ -20,6 +21,8 @@ import {
 import { replaceUserTeamAssignments } from "@/lib/administration/queries";
 import type { AccessRequestInput } from "@/types/userAccessRequest";
 import { USER_ROLES, type UserRole } from "@/types/userProfile";
+
+export type SignInResult = { success: false; error: string };
 
 export type SubmitAccessRequestResult =
   | { success: true }
@@ -502,32 +505,47 @@ export async function updateManagedUserAction(input: {
   }
 }
 
-export async function checkLoginAllowed(): Promise<{
-  allowed: boolean;
-  message: string | null;
-  checkError?: string | null;
-}> {
+export async function signInWithCredentials(
+  email: string,
+  password: string,
+): Promise<SignInResult> {
   try {
     const supabase = await createServerSupabaseClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
 
-    const profile = await getAuthenticatedUserProfileAnyStatus(supabase);
-    const pendingAccessRequest = user?.email
+    if (signInError) {
+      return { success: false, error: signInError.message };
+    }
+
+    const user = signInData.user;
+
+    if (!user) {
+      return { success: false, error: "Sign-in succeeded but no user was returned." };
+    }
+
+    const profile = await resolveUserProfileForAuthUser(supabase, user);
+    const pendingAccessRequest = user.email
       ? await hasPendingAccessRequestForEmail(user.email)
       : false;
-    const message = getLoginBlockMessage(profile, pendingAccessRequest);
+    const blockMessage = getLoginBlockMessage(profile, pendingAccessRequest);
+
+    if (blockMessage) {
+      await supabase.auth.signOut();
+      return { success: false, error: blockMessage };
+    }
+
+    redirect("/");
+  } catch (error) {
+    if (isNextRedirectError(error)) {
+      throw error;
+    }
 
     return {
-      allowed: message === null,
-      message,
-    };
-  } catch (error) {
-    return {
-      allowed: false,
-      message: null,
-      checkError: exposeAuthErrorForUi(error, "checkLoginAllowed"),
+      success: false,
+      error: exposeAuthErrorForUi(error, "signInWithCredentials"),
     };
   }
 }

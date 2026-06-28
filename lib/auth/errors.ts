@@ -27,6 +27,16 @@ export function isBenignAuthError(error: AuthLikeError | null | undefined): bool
   return isMissingAuthSessionError(error);
 }
 
+export function isNextRedirectError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "digest" in error &&
+    typeof (error as { digest?: string }).digest === "string" &&
+    (error as { digest: string }).digest.startsWith("NEXT_REDIRECT")
+  );
+}
+
 export function getAuthErrorMessage(error: unknown, fallback: string): string {
   const supabaseMessage = extractSupabaseAuthMessage(error);
 
@@ -125,7 +135,7 @@ function formatDevelopmentError(error: unknown): string {
 
   if (isGenericServerActionError(error)) {
     parts.push(
-      "[Debug] The server action likely failed before returning a result. Check server/Vercel logs for console.error output from checkLoginAllowed.",
+      "[Debug] The server action likely failed before returning a result. Check server/Vercel logs for console.error output from signInWithCredentials.",
     );
   }
 
