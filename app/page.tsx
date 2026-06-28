@@ -1,59 +1,55 @@
 import DashboardCard from "@/components/DashboardCard";
-import { AdmissionsSection } from "@/components/AdmissionsSection";
-import { supabase } from "@/lib/supabase";
+import { AdmissionsBoard } from "@/components/AdmissionsBoard";
+import { AppHeader } from "@/components/AppHeader";
+import { groupDocumentsByReferralId } from "@/lib/clinicalDocuments";
+import { fetchReferralDocuments } from "@/lib/clinicalDocumentsServer";
+import { withWorkflowFields } from "@/lib/referralWorkflow";
+import {
+  getActiveReferrals,
+  getCompletedReferrals,
+} from "@/lib/referralsServer";
+import {
+  sortReferralsByCompletedDateDesc,
+  sortReferralsByCreatedAtDesc,
+} from "@/lib/referralSorting";
 import type { Referral } from "@/types/referral";
+import type { ReferralDocument } from "@/types/referralDocument";
 
 export const dynamic = "force-dynamic";
 
-async function getReferrals(): Promise<Referral[]> {
-  try {
-    const { data, error } = await supabase.from("referrals").select(`
-      id,
-      patient,
-      type,
-      source,
-      clinical,
-      highCostMeds,
-      equipment,
-      mds,
-      medicalNecessity,
-      payer,
-      benefits,
-      authNumber,
-      authDates,
-      cwf,
-      financialApproval,
-      status
-    `);
-
-    if (error) {
-      throw new Error(`Failed to fetch referrals: ${error.message}`);
-    }
-
-    return (data ?? []) as Referral[];
-  } catch (error) {
-    console.error("Error loading referrals:", error);
-    throw error instanceof Error
-      ? error
-      : new Error("An unexpected error occurred while fetching referrals");
-  }
+function attachDocuments(
+  referrals: Referral[],
+  documentsByReferralId: Map<string, ReferralDocument[]>,
+): Referral[] {
+  return referrals.map((referral) => ({
+    ...referral,
+    documents: referral.id ? documentsByReferralId.get(referral.id) ?? [] : [],
+  }));
 }
 
 export default async function Home() {
-  const referrals = await getReferrals();
+  const [activeReferralsRaw, completedReferralsRaw, documents] = await Promise.all([
+    getActiveReferrals(),
+    getCompletedReferrals(),
+    fetchReferralDocuments().catch((error) => {
+      console.error("Error loading referral documents:", error);
+      return [];
+    }),
+  ]);
+
+  const documentsByReferralId = groupDocumentsByReferralId(documents);
+
+  const activeReferrals = sortReferralsByCreatedAtDesc(
+    attachDocuments(activeReferralsRaw.map(withWorkflowFields), documentsByReferralId),
+  );
+  const completedReferrals = sortReferralsByCompletedDateDesc(
+    attachDocuments(completedReferralsRaw.map(withWorkflowFields), documentsByReferralId),
+  );
 
   return (
     <main className="min-h-screen bg-slate-100 p-6 text-slate-900">
       <div className="mx-auto max-w-[1600px] space-y-6">
-        <header>
-          <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">
-            SNF Admissions Command Center
-          </p>
-          <h1 className="text-4xl font-bold">AdmitGrid</h1>
-          <p className="mt-2 text-slate-600">
-            Intake, clinical approval, MDS, benefits, authorization, CWF, and financial clearance in one grid.
-          </p>
-        </header>
+        <AppHeader activeNav="board" />
 
         <section className="grid gap-4 md:grid-cols-4">
           <DashboardCard label="Today's Referrals" value="18" />
@@ -62,7 +58,10 @@ export default async function Home() {
           <DashboardCard label="Waiting on Auth" value="3" tone="yellow" />
         </section>
 
-        <AdmissionsSection referrals={referrals} />
+        <AdmissionsBoard
+          initialActiveReferrals={activeReferrals}
+          initialCompletedReferrals={completedReferrals}
+        />
       </div>
     </main>
   );
