@@ -50,6 +50,7 @@ function isValidRole(role: string): role is UserRole {
 }
 
 const ADMIN_AUTH_TIMEOUT_MS = 15_000;
+const APPROVE_ACTION_TIMEOUT_MS = 12_000;
 
 async function withTimeout<T>(
   label: string,
@@ -274,178 +275,22 @@ export async function approveAccessRequestAction(input: {
   initialPassword: string;
   teamIds?: string[];
 }): Promise<{ success: boolean; error?: string }> {
+  const progress = { step: "verify executive" };
+
   try {
-    console.log("approve step 1: loading system owner profile");
-    const owner = await requireSystemOwnerUserProfile();
-    console.log("approve step 2: system owner profile loaded", owner.id);
+    return await withTimeout(
+      "approveAccessRequestAction",
+      executeApproveAccessRequest(input, progress),
+      APPROVE_ACTION_TIMEOUT_MS,
+    );
+  } catch (error) {
+    console.error("[approveAccessRequestAction] Failed:", error);
 
-    console.log("approve step 3: loading supabase client");
-    const supabase = await getSupabaseClientForMutation();
-    console.log("approve step 4: supabase client loaded");
-
-    const authAdmin = getAdminSupabaseClientIfAvailable();
-    const now = new Date().toISOString();
-    const facility = input.facility.trim();
-    const initialPassword = input.initialPassword.trim();
-
-    console.log("approve step 5: loading request");
-    const { data: request, error: requestError } = await supabase
-      .from("user_access_requests")
-      .select("id, authUserId, email, firstName, lastName, jobTitle, facility, status")
-      .eq("id", input.requestId)
-      .maybeSingle();
-    console.log("approve step 6: request loaded", {
-      found: Boolean(request),
-      requestError: requestError?.message ?? null,
-    });
-
-    if (requestError || !request) {
-      return { success: false, error: "Access request not found." };
-    }
-
-    if (request.status !== "Pending") {
-      return { success: false, error: "This request has already been reviewed." };
-    }
-
-    let authUserId = request.authUserId;
-    let existingProfileId: string | null = null;
-
-    if (authUserId) {
-      console.log("approve step 7: loading existing profile");
-      const { data: existingProfile } = await supabase
-        .from("user_profiles")
-        .select("id")
-        .eq("authUserId", authUserId)
-        .maybeSingle();
-      console.log("approve step 8: existing profile loaded", {
-        profileId: existingProfile?.id ?? null,
-      });
-
-      existingProfileId = existingProfile?.id ?? null;
-
-      if (initialPassword.length >= 6) {
-        if (!hasServiceRoleKey() || !authAdmin) {
-          return { success: false, error: adminClientUnavailableMessage() };
-        }
-
-        console.log("approve step 9: updating auth user password");
-        try {
-          const { error: passwordError } = await withTimeout(
-            "admin.auth.admin.updateUserById",
-            authAdmin.auth.admin.updateUserById(authUserId, {
-              password: initialPassword,
-            }),
-          );
-          console.log("approve step 10: auth user password update finished", {
-            passwordError: passwordError?.message ?? null,
-          });
-
-          if (passwordError) {
-            console.error("[approveAccessRequestAction] Password update failed:", passwordError);
-            return { success: false, error: `Password update failed: ${passwordError.message}` };
-          }
-        } catch (error) {
-          console.error("[approveAccessRequestAction] Password update failed:", error);
-          return {
-            success: false,
-            error: `Password update failed: ${error instanceof Error ? error.message : String(error)}`,
-          };
-        }
-      }
-    } else {
-      if (initialPassword.length < 6) {
-        return { success: false, error: "Initial password must be at least 6 characters." };
-      }
-
-      if (!hasServiceRoleKey()) {
-        return { success: false, error: adminClientUnavailableMessage() };
-      }
-
-      if (!authAdmin) {
-        return { success: false, error: adminClientUnavailableMessage() };
-      }
-
-      console.log("approve step 11: creating auth user");
-      try {
-        const authUser = await createAuthUserForAccessRequest(
-          authAdmin,
-          normalizeEmail(request.email),
-          initialPassword,
-          {
-            firstName: request.firstName,
-            lastName: request.lastName,
-            facility: facility || request.facility,
-            jobTitle: request.jobTitle,
-          },
-        );
-        console.log("approve step 12: auth user created", authUser.id);
-
-        authUserId = authUser.id;
-      } catch (error) {
-        console.error("[approveAccessRequestAction] User creation failed:", error);
-        return {
-          success: false,
-          error: `User creation failed: ${error instanceof Error ? error.message : String(error)}`,
-        };
-      }
-    }
-
-    if (!authUserId) {
-      return { success: false, error: "Unable to create sign-in credentials for this user." };
-    }
-
-    console.log("approve step 13: provisioning profile, roles, and teams");
-    try {
-      await provisionApprovedUser({
-        supabase,
-        authUserId,
-        email: normalizeEmail(request.email),
-        firstName: request.firstName,
-        lastName: request.lastName,
-        facility: facility || request.facility,
-        jobTitle: request.jobTitle,
-        roles: input.roles,
-        isExecutive: input.isExecutive,
-        teamIds: input.teamIds,
-        existingProfileId,
-      });
-      console.log("approve step 14: profile, roles, and teams provisioned");
-    } catch (error) {
-      console.error("[approveAccessRequestAction] Profile, role, or team assignment failed:", error);
+    if (error instanceof Error && error.message.includes("timed out")) {
       return {
         success: false,
-        error: `Profile setup failed: ${error instanceof Error ? error.message : String(error)}`,
+        error: `Approval timed out at step: ${progress.step}`,
       };
-    }
-
-    console.log("approve step 15: updating request status");
-    const { error: updateRequestError } = await supabase
-      .from("user_access_requests")
-      .update({
-        status: "Approved",
-        authUserId,
-        reviewedAt: now,
-        reviewedByProfileId: owner.id,
-        facility: facility || request.facility,
-      })
-      .eq("id", request.id);
-    console.log("approve step 16: request status update finished", {
-      updateRequestError: updateRequestError?.message ?? null,
-    });
-
-    if (updateRequestError) {
-      console.error("[approveAccessRequestAction] Request status update failed:", updateRequestError);
-      return { success: false, error: `Request status update failed: ${updateRequestError.message}` };
-    }
-
-    console.log("approve step 17: approval complete");
-    revalidatePath("/administration");
-    return { success: true };
-  } catch (error) {
-    console.error("[approveAccessRequestAction] Unexpected error:", error);
-
-    if (isNextRedirectError(error)) {
-      throw error;
     }
 
     return {
@@ -453,6 +298,166 @@ export async function approveAccessRequestAction(input: {
       error: error instanceof Error ? error.message : "Unable to approve request.",
     };
   }
+}
+
+async function executeApproveAccessRequest(
+  input: {
+    requestId: string;
+    facility: string;
+    roles: string[];
+    isExecutive: boolean;
+    initialPassword: string;
+    teamIds?: string[];
+  },
+  progress: { step: string },
+): Promise<{ success: boolean; error?: string }> {
+  progress.step = "verify executive";
+  let owner;
+
+  try {
+    owner = await requireSystemOwnerUserProfile();
+  } catch (error) {
+    console.error("[approveAccessRequestAction] System owner verification failed:", error);
+    return {
+      success: false,
+      error: "Approval failed: not authorized as system owner.",
+    };
+  }
+
+  progress.step = "get mutation client";
+  const supabase = await getSupabaseClientForMutation();
+  const authAdmin = getAdminSupabaseClientIfAvailable();
+  const now = new Date().toISOString();
+  const facility = input.facility.trim();
+  const initialPassword = input.initialPassword.trim();
+
+  progress.step = "load request";
+  const { data: request, error: requestError } = await supabase
+    .from("user_access_requests")
+    .select("id, authUserId, email, firstName, lastName, jobTitle, facility, status")
+    .eq("id", input.requestId)
+    .maybeSingle();
+
+  if (requestError || !request) {
+    return { success: false, error: "Access request not found." };
+  }
+
+  if (request.status !== "Pending") {
+    return { success: false, error: "This request has already been reviewed." };
+  }
+
+  let authUserId = request.authUserId;
+  let existingProfileId: string | null = null;
+
+  if (authUserId) {
+    const { data: existingProfile } = await supabase
+      .from("user_profiles")
+      .select("id")
+      .eq("authUserId", authUserId)
+      .maybeSingle();
+
+    existingProfileId = existingProfile?.id ?? null;
+
+    if (initialPassword.length >= 6) {
+      if (!hasServiceRoleKey() || !authAdmin) {
+        return { success: false, error: adminClientUnavailableMessage() };
+      }
+
+      progress.step = "create auth user";
+      const { error: passwordError } = await authAdmin.auth.admin.updateUserById(authUserId, {
+        password: initialPassword,
+      });
+
+      if (passwordError) {
+        console.error("[approveAccessRequestAction] Password update failed:", passwordError);
+        return { success: false, error: `Password update failed: ${passwordError.message}` };
+      }
+    }
+  } else {
+    if (initialPassword.length < 6) {
+      return { success: false, error: "Initial password must be at least 6 characters." };
+    }
+
+    if (!hasServiceRoleKey()) {
+      return { success: false, error: adminClientUnavailableMessage() };
+    }
+
+    if (!authAdmin) {
+      return { success: false, error: adminClientUnavailableMessage() };
+    }
+
+    progress.step = "create auth user";
+    let authUser;
+
+    try {
+      authUser = await createAuthUserForAccessRequest(
+        authAdmin,
+        normalizeEmail(request.email),
+        initialPassword,
+        {
+          firstName: request.firstName,
+          lastName: request.lastName,
+          facility: facility || request.facility,
+          jobTitle: request.jobTitle,
+        },
+      );
+    } catch (error) {
+      console.error("[approveAccessRequestAction] User creation failed:", error);
+      return {
+        success: false,
+        error: `User creation failed: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+
+    authUserId = authUser.id;
+  }
+
+  if (!authUserId) {
+    return { success: false, error: "Unable to create sign-in credentials for this user." };
+  }
+
+  progress.step = "provision profile";
+  try {
+    await provisionApprovedUser({
+      supabase,
+      authUserId,
+      email: normalizeEmail(request.email),
+      firstName: request.firstName,
+      lastName: request.lastName,
+      facility: facility || request.facility,
+      jobTitle: request.jobTitle,
+      roles: input.roles,
+      isExecutive: input.isExecutive,
+      teamIds: input.teamIds,
+      existingProfileId,
+    });
+  } catch (error) {
+    console.error("[approveAccessRequestAction] Profile, role, or team assignment failed:", error);
+    return {
+      success: false,
+      error: `Profile setup failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  progress.step = "update request status";
+  const { error: updateRequestError } = await supabase
+    .from("user_access_requests")
+    .update({
+      status: "Approved",
+      authUserId,
+      reviewedAt: now,
+      reviewedByProfileId: owner.id,
+      facility: facility || request.facility,
+    })
+    .eq("id", request.id);
+
+  if (updateRequestError) {
+    console.error("[approveAccessRequestAction] Request status update failed:", updateRequestError);
+    return { success: false, error: `Request status update failed: ${updateRequestError.message}` };
+  }
+
+  revalidatePath("/administration");
+  return { success: true };
 }
 
 export async function rejectAccessRequestAction(

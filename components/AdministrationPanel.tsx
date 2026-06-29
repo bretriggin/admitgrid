@@ -170,7 +170,6 @@ export function AdministrationPanel({
   }
 
   async function handleApprove() {
-    alert("handleApprove clicked");
     if (!approveRequest) {
       return;
     }
@@ -179,7 +178,6 @@ export function AdministrationPanel({
     setError(null);
 
     try {
-      alert("calling approveAccessRequestAction");
       const result = await approveAccessRequestAction({
         requestId: approveRequest.id,
         facility: approveFacility,
@@ -188,7 +186,6 @@ export function AdministrationPanel({
         initialPassword: approveInitialPassword,
         teamIds: approveTeamIds,
       });
-      alert("approveAccessRequestAction returned: " + JSON.stringify(result));
 
       if (!result.success) {
         setError(result.error ?? "Unable to approve request.");
@@ -198,7 +195,6 @@ export function AdministrationPanel({
       setApproveRequestId(null);
       setMessage(`Approved access for ${approveRequest.email}.`);
     } catch (error) {
-      alert("Approval error: " + (error instanceof Error ? error.message : String(error)));
       console.error("[AdministrationPanel] handleApprove failed:", error);
       setError(error instanceof Error ? error.message : "Unable to approve request.");
     } finally {
@@ -540,13 +536,8 @@ export function AdministrationPanel({
               </button>
               <button
                 type="button"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  alert("Approve button clicked");
-                  void handleApprove();
-                }}
-                disabled={false}
+                onClick={() => void handleApprove()}
+                disabled={busyId === approveRequest.id}
                 className={primaryButtonClassName}
               >
                 Approve user
