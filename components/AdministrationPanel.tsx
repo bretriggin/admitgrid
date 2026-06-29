@@ -170,6 +170,7 @@ export function AdministrationPanel({
   }
 
   async function handleApprove() {
+    alert("handleApprove clicked");
     if (!approveRequest) {
       return;
     }
@@ -177,24 +178,32 @@ export function AdministrationPanel({
     setBusyId(approveRequest.id);
     setError(null);
 
-    const result = await approveAccessRequestAction({
-      requestId: approveRequest.id,
-      facility: approveFacility,
-      roles: approveRoles,
-      isExecutive: approveExecutive,
-      initialPassword: approveInitialPassword,
-      teamIds: approveTeamIds,
-    });
+    try {
+      alert("calling approveAccessRequestAction");
+      const result = await approveAccessRequestAction({
+        requestId: approveRequest.id,
+        facility: approveFacility,
+        roles: approveRoles,
+        isExecutive: approveExecutive,
+        initialPassword: approveInitialPassword,
+        teamIds: approveTeamIds,
+      });
+      alert("approveAccessRequestAction returned: " + JSON.stringify(result));
 
-    setBusyId(null);
+      if (!result.success) {
+        setError(result.error ?? "Unable to approve request.");
+        return;
+      }
 
-    if (!result.success) {
-      setError(result.error ?? "Unable to approve request.");
-      return;
+      setApproveRequestId(null);
+      setMessage(`Approved access for ${approveRequest.email}.`);
+    } catch (error) {
+      alert("Approval error: " + (error instanceof Error ? error.message : String(error)));
+      console.error("[AdministrationPanel] handleApprove failed:", error);
+      setError(error instanceof Error ? error.message : "Unable to approve request.");
+    } finally {
+      setBusyId(null);
     }
-
-    setApproveRequestId(null);
-    setMessage(`Approved access for ${approveRequest.email}.`);
   }
 
   async function handleReject(requestId: string) {
@@ -531,8 +540,13 @@ export function AdministrationPanel({
               </button>
               <button
                 type="button"
-                onClick={() => void handleApprove()}
-                disabled={busyId === approveRequest.id}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  alert("Approve button clicked");
+                  void handleApprove();
+                }}
+                disabled={false}
                 className={primaryButtonClassName}
               >
                 Approve user

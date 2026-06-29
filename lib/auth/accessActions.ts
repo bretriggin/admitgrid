@@ -11,6 +11,7 @@ import {
   getDataSupabaseClient,
   getSupabaseClientForMutation,
 } from "@/lib/supabase/dataClient";
+import { hasServiceRoleKey, shouldUseRegularSupabaseClient } from "@/lib/supabase/admin";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { requireSystemOwnerUserProfile } from "@/lib/auth/session";
 import {
@@ -22,9 +23,9 @@ import { replaceUserTeamAssignments } from "@/lib/administration/queries";
 import type { AccessRequestInput } from "@/types/userAccessRequest";
 import { USER_ROLES, type UserRole } from "@/types/userProfile";
 
-export type SignInResult = { success: false; error: string };
+type SignInResult = { success: false; error: string };
 
-export type SubmitAccessRequestResult =
+type SubmitAccessRequestResult =
   | { success: true }
   | { success: false; error: string };
 
@@ -32,8 +33,44 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+function adminClientUnavailableMessage(): string {
+  if (!hasServiceRoleKey()) {
+    return "Creating sign-in credentials requires SUPABASE_SERVICE_ROLE_KEY. Add it to your environment and restart the server.";
+  }
+
+  if (shouldUseRegularSupabaseClient()) {
+    return "Creating sign-in credentials requires the Supabase service role client. In development, set SUPABASE_SERVICE_ROLE_KEY in .env.local and restart the dev server.";
+  }
+
+  return "Supabase admin client failed to initialize. Check NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.";
+}
+
 function isValidRole(role: string): role is UserRole {
   return USER_ROLES.includes(role as UserRole);
+}
+
+const ADMIN_AUTH_TIMEOUT_MS = 15_000;
+
+async function withTimeout<T>(
+  label: string,
+  promise: Promise<T>,
+  timeoutMs = ADMIN_AUTH_TIMEOUT_MS,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
 }
 
 async function createAuthUserForAccessRequest(
@@ -42,12 +79,15 @@ async function createAuthUserForAccessRequest(
   password: string,
   metadata: Record<string, string>,
 ) {
-  const { data, error } = await admin.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-    user_metadata: metadata,
-  });
+  const { data, error } = await withTimeout(
+    "admin.auth.admin.createUser",
+    admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: metadata,
+    }),
+  );
 
   if (error || !data.user) {
     throw new Error(error?.message ?? "Unable to create sign-in credentials.");
@@ -235,18 +275,29 @@ export async function approveAccessRequestAction(input: {
   teamIds?: string[];
 }): Promise<{ success: boolean; error?: string }> {
   try {
+    console.log("approve step 1: loading system owner profile");
     const owner = await requireSystemOwnerUserProfile();
+    console.log("approve step 2: system owner profile loaded", owner.id);
+
+    console.log("approve step 3: loading supabase client");
     const supabase = await getSupabaseClientForMutation();
+    console.log("approve step 4: supabase client loaded");
+
     const authAdmin = getAdminSupabaseClientIfAvailable();
     const now = new Date().toISOString();
     const facility = input.facility.trim();
     const initialPassword = input.initialPassword.trim();
 
+    console.log("approve step 5: loading request");
     const { data: request, error: requestError } = await supabase
       .from("user_access_requests")
       .select("id, authUserId, email, firstName, lastName, jobTitle, facility, status")
       .eq("id", input.requestId)
       .maybeSingle();
+    console.log("approve step 6: request loaded", {
+      found: Boolean(request),
+      requestError: requestError?.message ?? null,
+    });
 
     if (requestError || !request) {
       return { success: false, error: "Access request not found." };
@@ -260,21 +311,45 @@ export async function approveAccessRequestAction(input: {
     let existingProfileId: string | null = null;
 
     if (authUserId) {
+      console.log("approve step 7: loading existing profile");
       const { data: existingProfile } = await supabase
         .from("user_profiles")
         .select("id")
         .eq("authUserId", authUserId)
         .maybeSingle();
+      console.log("approve step 8: existing profile loaded", {
+        profileId: existingProfile?.id ?? null,
+      });
 
       existingProfileId = existingProfile?.id ?? null;
 
-      if (initialPassword.length >= 6 && authAdmin) {
-        const { error: passwordError } = await authAdmin.auth.admin.updateUserById(authUserId, {
-          password: initialPassword,
-        });
+      if (initialPassword.length >= 6) {
+        if (!hasServiceRoleKey() || !authAdmin) {
+          return { success: false, error: adminClientUnavailableMessage() };
+        }
 
-        if (passwordError) {
-          return { success: false, error: passwordError.message };
+        console.log("approve step 9: updating auth user password");
+        try {
+          const { error: passwordError } = await withTimeout(
+            "admin.auth.admin.updateUserById",
+            authAdmin.auth.admin.updateUserById(authUserId, {
+              password: initialPassword,
+            }),
+          );
+          console.log("approve step 10: auth user password update finished", {
+            passwordError: passwordError?.message ?? null,
+          });
+
+          if (passwordError) {
+            console.error("[approveAccessRequestAction] Password update failed:", passwordError);
+            return { success: false, error: `Password update failed: ${passwordError.message}` };
+          }
+        } catch (error) {
+          console.error("[approveAccessRequestAction] Password update failed:", error);
+          return {
+            success: false,
+            error: `Password update failed: ${error instanceof Error ? error.message : String(error)}`,
+          };
         }
       }
     } else {
@@ -282,47 +357,68 @@ export async function approveAccessRequestAction(input: {
         return { success: false, error: "Initial password must be at least 6 characters." };
       }
 
-      if (!authAdmin) {
-        return {
-          success: false,
-          error:
-            "Creating sign-in credentials requires SUPABASE_SERVICE_ROLE_KEY in non-development environments.",
-        };
+      if (!hasServiceRoleKey()) {
+        return { success: false, error: adminClientUnavailableMessage() };
       }
 
-      const authUser = await createAuthUserForAccessRequest(
-        authAdmin,
-        normalizeEmail(request.email),
-        initialPassword,
-        {
-          firstName: request.firstName,
-          lastName: request.lastName,
-          facility: facility || request.facility,
-          jobTitle: request.jobTitle,
-        },
-      );
+      if (!authAdmin) {
+        return { success: false, error: adminClientUnavailableMessage() };
+      }
 
-      authUserId = authUser.id;
+      console.log("approve step 11: creating auth user");
+      try {
+        const authUser = await createAuthUserForAccessRequest(
+          authAdmin,
+          normalizeEmail(request.email),
+          initialPassword,
+          {
+            firstName: request.firstName,
+            lastName: request.lastName,
+            facility: facility || request.facility,
+            jobTitle: request.jobTitle,
+          },
+        );
+        console.log("approve step 12: auth user created", authUser.id);
+
+        authUserId = authUser.id;
+      } catch (error) {
+        console.error("[approveAccessRequestAction] User creation failed:", error);
+        return {
+          success: false,
+          error: `User creation failed: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
     }
 
     if (!authUserId) {
       return { success: false, error: "Unable to create sign-in credentials for this user." };
     }
 
-    await provisionApprovedUser({
-      supabase,
-      authUserId,
-      email: normalizeEmail(request.email),
-      firstName: request.firstName,
-      lastName: request.lastName,
-      facility: facility || request.facility,
-      jobTitle: request.jobTitle,
-      roles: input.roles,
-      isExecutive: input.isExecutive,
-      teamIds: input.teamIds,
-      existingProfileId,
-    });
+    console.log("approve step 13: provisioning profile, roles, and teams");
+    try {
+      await provisionApprovedUser({
+        supabase,
+        authUserId,
+        email: normalizeEmail(request.email),
+        firstName: request.firstName,
+        lastName: request.lastName,
+        facility: facility || request.facility,
+        jobTitle: request.jobTitle,
+        roles: input.roles,
+        isExecutive: input.isExecutive,
+        teamIds: input.teamIds,
+        existingProfileId,
+      });
+      console.log("approve step 14: profile, roles, and teams provisioned");
+    } catch (error) {
+      console.error("[approveAccessRequestAction] Profile, role, or team assignment failed:", error);
+      return {
+        success: false,
+        error: `Profile setup failed: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
 
+    console.log("approve step 15: updating request status");
     const { error: updateRequestError } = await supabase
       .from("user_access_requests")
       .update({
@@ -333,14 +429,25 @@ export async function approveAccessRequestAction(input: {
         facility: facility || request.facility,
       })
       .eq("id", request.id);
+    console.log("approve step 16: request status update finished", {
+      updateRequestError: updateRequestError?.message ?? null,
+    });
 
     if (updateRequestError) {
-      return { success: false, error: updateRequestError.message };
+      console.error("[approveAccessRequestAction] Request status update failed:", updateRequestError);
+      return { success: false, error: `Request status update failed: ${updateRequestError.message}` };
     }
 
+    console.log("approve step 17: approval complete");
     revalidatePath("/administration");
     return { success: true };
   } catch (error) {
+    console.error("[approveAccessRequestAction] Unexpected error:", error);
+
+    if (isNextRedirectError(error)) {
+      throw error;
+    }
+
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unable to approve request.",

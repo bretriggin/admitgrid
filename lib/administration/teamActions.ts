@@ -92,5 +92,3 @@ export async function updateTeamAction(input: {
     };
   }
 }
-
-export { TEAM_TYPES };
